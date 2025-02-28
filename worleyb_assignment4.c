@@ -58,6 +58,9 @@ int main(){
 
 	while(true){
 		curr_command = parse_input();
+		// Handle blank lines and comments
+		if (curr_command->argc == 0) continue;
+		if (!strncmp(curr_command->argv[0], "#", 1)) continue;
 		// Built-in command: exit
 		if(!strcmp(curr_command->argv[0], "exit")){
 			break;
