@@ -8,9 +8,9 @@
 
 #include <stdio.h>
 #include <stdbool.h>
-#include <stdlib.h>
+#include <stdlib.h> // getenv
 #include <string.h>
-#include <unistd.h> //getpid
+#include <unistd.h> //getpid, chdir
 
 #define INPUT_LENGTH	2048
 #define MAX_ARGS	512
@@ -61,9 +61,35 @@ int main(){
 		// Handle blank lines and comments
 		if (curr_command->argc == 0) continue;
 		if (!strncmp(curr_command->argv[0], "#", 1)) continue;
+		
 		// Built-in command: exit
 		if(!strcmp(curr_command->argv[0], "exit")){
 			break;
+		}
+
+		// Built-in command: cd
+		if(!strcmp(curr_command->argv[0], "cd") && curr_command->argc == 1){
+			if(chdir(getenv("HOME")) != 0){	
+				perror("chdir() to HOME failed");
+				exit(1);
+				fflush(stdout);
+			} else{	
+				setenv("PWD", getenv("HOME"), 1);
+				//printf("You are now in %s\n", getenv("HOME"));
+				//printf("You are now in %s\n", getenv("PWD"));
+				//fflush(stdout);
+			}
+		} else if(!strcmp(curr_command->argv[0], "cd") && curr_command->argc == 2){
+			if(chdir(curr_command->argv[1]) != 0){	
+				perror("chdir() failed");
+				printf("The current working directory is %s\n", getenv("PWD"));
+				fflush(stdout);
+			} else{	
+				setenv("PWD", curr_command->argv[1], 1);
+				//printf("You are now in %s\n", getenv("HOME"));
+				printf("You are now in %s\n", getenv("PWD"));
+				fflush(stdout);
+			}
 		}
 
 	}
