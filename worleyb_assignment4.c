@@ -13,6 +13,7 @@
 #include <unistd.h> //getpid, chdir
 #include <sys/types.h> // pid_t
 #include <sys/wait.h> // wait, waitpid
+#include <fcntl.h>
 
 #define INPUT_LENGTH	2048
 #define MAX_ARGS	512
@@ -53,7 +54,6 @@ struct command_line *parse_input(){
 	return curr_command;
 }
 
-//
 
 int main(){
 	struct command_line *curr_command;
@@ -101,7 +101,7 @@ int main(){
 		else if(!strcmp(curr_command->argv[0], "status") && curr_command->argc == 1){
 			if(initialized){
 				if(WIFEXITED(childStatus)){
-					printf("Exit status: %d\n", WEXITSTATUS(childStatus));
+					printf("exit value %d\n", WEXITSTATUS(childStatus));
 					fflush(stdout);
 				} else{
 					printf("Abnormal termination due to signal %d\n", WTERMSIG(childStatus));
@@ -117,22 +117,65 @@ int main(){
 			pid_t spawnPid = fork();
 			initialized = 1;
 
+
 			switch(spawnPid){
 				case -1:
 					perror("fork()\n");
 					exit(1);
 					break;
 				case 0:
-					printf("CHILD: (%d) running %s command\n", getpid(), curr_command->argv[0]);
+					//printf("CHILD: (%d) running %s command\n", getpid(), curr_command->argv[0]);
+					// Check for input redirection
+					if(curr_command->input_file){
+						//inputRedirect(curr_command->input_file);
+						// Open source file
+						int sourceFD = open(curr_command->input_file, O_RDONLY);
+						if(sourceFD == -1){
+							printf("cannot open %s for input\n", curr_command->input_file);
+							fflush(stdout);
+						//	perror("curr_command->input_file");
+							exit(1);
+						}
+						// Redirect stdin to source file
+						int result = dup2(sourceFD, 0);
+						if(result == -1){
+							perror("source dup2()");
+							exit(1);
+						}
+					}
+
+					// Check for output redirection
+					if(curr_command->output_file){
+						//outputRedirect(curr_command->output_file);
+						int targetFD = open(curr_command->output_file, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+						if(targetFD == -1){
+							printf("cannot open %s for output\n", curr_command->output_file);
+							fflush(stdout);
+				//			perror("target open()");
+							exit(1);
+						}
+						// Redirect stdouut to target file
+						int result = dup2(targetFD, 1);
+						if(result == -1){
+							perror("target dup2()");
+							exit(1);
+						}
+					}
 					execvp(curr_command->argv[0], curr_command->argv);
-					perror("execvp");
+					perror(curr_command->argv[0]);
 					exit(1);
 					break;
 				default:
 					spawnPid = waitpid(spawnPid, &childStatus, 0);
-					printf("PARENT (%d): child (%d) terminated\n", getpid(), spawnPid);
+					// printf("PARENT (%d): child (%d) terminated\n", getpid(), spawnPid);
 					break;
 			}
+	//		if(curr_command->input_file){
+	//			close(sourceFD);
+	//		}
+	//		if(curr_command->output_file){
+	//			close(targetFD);
+	//		}
 		}
 	}
 	return EXIT_SUCCESS;
