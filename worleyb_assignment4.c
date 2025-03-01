@@ -11,6 +11,8 @@
 #include <stdlib.h> // getenv
 #include <string.h>
 #include <unistd.h> //getpid, chdir
+#include <sys/types.h> // pid_t
+#include <sys/wait.h> // wait, waitpid
 
 #define INPUT_LENGTH	2048
 #define MAX_ARGS	512
@@ -55,20 +57,23 @@ struct command_line *parse_input(){
 
 int main(){
 	struct command_line *curr_command;
+	int childStatus;
+	bool initialized = 0;
 
 	while(true){
 		curr_command = parse_input();
+
 		// Handle blank lines and comments
-		if (curr_command->argc == 0) continue;
-		if (!strncmp(curr_command->argv[0], "#", 1)) continue;
+		if(curr_command->argc == 0) continue;
+		if(!strncmp(curr_command->argv[0], "#", 1)) continue;
 		
 		// Built-in command: exit
-		if(!strcmp(curr_command->argv[0], "exit")){
+		if(!strcmp(curr_command->argv[0], "exit") && curr_command->argc == 1){
 			break;
 		}
 
 		// Built-in command: cd
-		if(!strcmp(curr_command->argv[0], "cd") && curr_command->argc == 1){
+		else if(!strcmp(curr_command->argv[0], "cd") && curr_command->argc == 1){
 			if(chdir(getenv("HOME")) != 0){	
 				perror("chdir() to HOME failed");
 				exit(1);
@@ -92,6 +97,43 @@ int main(){
 			}
 		}
 
+		// Built-in command: status
+		else if(!strcmp(curr_command->argv[0], "status") && curr_command->argc == 1){
+			if(initialized){
+				if(WIFEXITED(childStatus)){
+					printf("Exit status: %d\n", WEXITSTATUS(childStatus));
+					fflush(stdout);
+				} else{
+					printf("Abnormal termination due to signal %d\n", WTERMSIG(childStatus));
+					fflush(stdout);
+				}
+			} else{
+				return 0;
+			}
+		}
+
+		// Execution of other commands
+		else{
+			pid_t spawnPid = fork();
+			initialized = 1;
+
+			switch(spawnPid){
+				case -1:
+					perror("fork()\n");
+					exit(1);
+					break;
+				case 0:
+					printf("CHILD: (%d) running %s command\n", getpid(), curr_command->argv[0]);
+					execvp(curr_command->argv[0], curr_command->argv);
+					perror("execvp");
+					exit(1);
+					break;
+				default:
+					spawnPid = waitpid(spawnPid, &childStatus, 0);
+					printf("PARENT (%d): child (%d) terminated\n", getpid(), spawnPid);
+					break;
+			}
+		}
 	}
 	return EXIT_SUCCESS;
 }
