@@ -14,6 +14,7 @@
 #include <sys/types.h> // pid_t
 #include <sys/wait.h> // wait, waitpid
 #include <fcntl.h>
+#include <signal.h>
 
 #define INPUT_LENGTH	2048
 #define MAX_ARGS	512
@@ -63,29 +64,52 @@ void handle_SIGCHLD(int signo){
 
 	while((childPid = waitpid(-1, &childStatus, WNOHANG)) > 0){
 		if(WIFEXITED(childStatus)){
-			printf("background pid %d is done: exit value %d\n", childPid, WEXITSTATUS(childStatus));
-			fflush(stdout);
-			printf(": ");
-			fflush(stdout);
+			char msg[50];
+			int len = snprintf(msg, sizeof(msg), "\nbackground pid %d is done: exit value %d\n: ", childPid, WEXITSTATUS(childStatus));
+
+			write(STDOUT_FILENO, msg, len);
+		//	printf("\nbackground pid %d is done: exit value %d\n", childPid, WEXITSTATUS(childStatus));
+		//	fflush(stdout);
+		//	printf(": ");
+		//	fflush(stdout);
 		} else{
-			printf("background pid %d is done: terminated by signal %d\n", childPid, WTERMSIG(childStatus));
-			fflush(stdout);
-			printf(": ");
-			fflush(stdout);
+			char msg[60];
+			int len = snprintf(msg, sizeof(msg), "\nbackground pid %d is done: terminated by signal %d\n: ", childPid, WTERMSIG(childStatus));
+			write(STDOUT_FILENO, msg, len);
+		//	printf("\nbackground pid %d is done: terminated by signal %d\n", childPid, WTERMSIG(childStatus));
+		//	fflush(stdout);
+		//	printf(": ");
+		//	fflush(stdout);
 		}
 	}
 }
 
+// Signal handler to ignore SIGINT
+void handle_SIGINT(int signo){
+	char msg[33];
+	int len = snprintf(msg, sizeof(msg), "\nterminated by signal %d\n", signo);
+	write(STDOUT_FILENO, msg, len);
+}
 
 int main(){
 	struct command_line *curr_command;
 	int childStatus;
 	bool initialized = false;
 
-	struct sigaction SIGCHLD_action = {0};
+	struct sigaction SIGCHLD_action = {0}, SIGINT_action = {0}, ignore_action = {0}, default_action = {0};
 	SIGCHLD_action.sa_handler = handle_SIGCHLD;
+	sigfillset(&SIGCHLD_action.sa_mask);
 	SIGCHLD_action.sa_flags = SA_RESTART;
 	sigaction(SIGCHLD, &SIGCHLD_action, NULL);
+
+	SIGINT_action.sa_handler = handle_SIGINT;
+	sigfillset(&SIGINT_action.sa_mask);
+	SIGINT_action.sa_flags = SA_RESTART;
+	sigaction(SIGINT, &SIGINT_action, NULL);
+
+	ignore_action.sa_handler = SIG_IGN;
+	
+	default_action.sa_handler = SIG_DFL;
 
 	while(true){
 		curr_command = parse_input();
@@ -149,7 +173,14 @@ int main(){
 				exit(1);
 				break;
 			case 0: // Child Process
-			// Check for input redirection
+				//SIGINT handling
+				if(curr_command->is_bg){
+					sigaction(SIGINT, &ignore_action, NULL);
+				} else{
+					sigaction(SIGINT, &default_action, NULL);
+				}
+
+				// Check for input redirection
 				if(curr_command->input_file){
 					//inputRedirect(curr_command->input_file);
 					// Open source file
