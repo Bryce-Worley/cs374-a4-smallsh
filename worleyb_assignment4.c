@@ -19,6 +19,7 @@
 #define INPUT_LENGTH	2048
 #define MAX_ARGS	512
 
+
 // Struct for command_line adapted from sample_parser.c provided in assignment4 materials
 struct command_line{
 	char *argv[MAX_ARGS + 1];
@@ -68,18 +69,10 @@ void handle_SIGCHLD(int signo){
 			int len = snprintf(msg, sizeof(msg), "\nbackground pid %d is done: exit value %d\n: ", childPid, WEXITSTATUS(childStatus));
 
 			write(STDOUT_FILENO, msg, len);
-		//	printf("\nbackground pid %d is done: exit value %d\n", childPid, WEXITSTATUS(childStatus));
-		//	fflush(stdout);
-		//	printf(": ");
-		//	fflush(stdout);
 		} else{
 			char msg[60];
-			int len = snprintf(msg, sizeof(msg), "\nbackground pid %d is done: terminated by signal %d\n: ", childPid, WTERMSIG(childStatus));
+			int len = snprintf(msg, sizeof(msg), "background pid %d is done: terminated by signal %d\n", childPid, WTERMSIG(childStatus));
 			write(STDOUT_FILENO, msg, len);
-		//	printf("\nbackground pid %d is done: terminated by signal %d\n", childPid, WTERMSIG(childStatus));
-		//	fflush(stdout);
-		//	printf(": ");
-		//	fflush(stdout);
 		}
 	}
 }
@@ -87,8 +80,23 @@ void handle_SIGCHLD(int signo){
 // Signal handler to ignore SIGINT
 void handle_SIGINT(int signo){
 	char msg[33];
-	int len = snprintf(msg, sizeof(msg), "\nterminated by signal %d\n", signo);
+	int len = snprintf(msg, sizeof(msg), "\nterminated by signal %d\n: ", signo);
 	write(STDOUT_FILENO, msg, len);
+}
+
+
+bool fgOnly = false;
+// Signal handler for SIGTSTP to toggle fgOnly mode
+void handle_SIGTSTP(int signo){
+	if(!fgOnly){
+		char* msg = "\nEntering foreground-only mode (& is now ignored)\n: ";
+		fgOnly = true;
+		write(STDOUT_FILENO, msg, 52);
+	} else{
+		char* msg = "\nExiting foreground-only mode\n: ";
+		fgOnly = false;
+		write(STDOUT_FILENO, msg, 32);
+	}
 }
 
 int main(){
@@ -96,7 +104,7 @@ int main(){
 	int childStatus;
 	bool initialized = false;
 
-	struct sigaction SIGCHLD_action = {0}, SIGINT_action = {0}, ignore_action = {0}, default_action = {0};
+	struct sigaction SIGCHLD_action = {0}, SIGINT_action = {0}, ignore_action = {0}, default_action = {0}, SIGTSTP_action = {0};
 	SIGCHLD_action.sa_handler = handle_SIGCHLD;
 	sigfillset(&SIGCHLD_action.sa_mask);
 	SIGCHLD_action.sa_flags = SA_RESTART;
@@ -111,6 +119,11 @@ int main(){
 	
 	default_action.sa_handler = SIG_DFL;
 
+	SIGTSTP_action.sa_handler = handle_SIGTSTP;
+	sigfillset(&SIGTSTP_action.sa_mask);
+	SIGTSTP_action.sa_flags = SA_RESTART;
+	sigaction(SIGTSTP, &SIGTSTP_action, NULL);
+
 	while(true){
 		curr_command = parse_input();
 
@@ -121,7 +134,7 @@ int main(){
 		// Built-in commands
 		// Built-in command: exit
 		if(!strcmp(curr_command->argv[0], "exit") && curr_command->argc == 1){
-			break;
+			exit(0);
 		}
 		// Built-in command: cd
 		else if(!strcmp(curr_command->argv[0], "cd") && curr_command->argc == 1){
@@ -136,12 +149,8 @@ int main(){
 		} else if(!strcmp(curr_command->argv[0], "cd") && curr_command->argc == 2){
 			if(chdir(curr_command->argv[1]) != 0){	
 				perror("chdir() failed");
-				printf("The current working directory is %s\n", getenv("PWD"));
-				fflush(stdout);
 			} else{	
 				setenv("PWD", curr_command->argv[1], 1);
-				printf("You are now in %s\n", getenv("PWD"));
-				fflush(stdout);
 			}
 			continue;
 		}
@@ -152,7 +161,7 @@ int main(){
 					printf("exit value %d\n", WEXITSTATUS(childStatus));
 					fflush(stdout);
 				} else{
-					printf("Abnormal termination due to signal %d\n", WTERMSIG(childStatus));
+					printf("terminated by signal %d\n", WTERMSIG(childStatus));
 					fflush(stdout);
 				}
 			} else{
@@ -180,6 +189,7 @@ int main(){
 					sigaction(SIGINT, &default_action, NULL);
 				}
 
+
 				// Check for input redirection
 				if(curr_command->input_file){
 					//inputRedirect(curr_command->input_file);
@@ -204,6 +214,7 @@ int main(){
 					close(bgDefIn);
 				}
 
+				
 				// Check for output redirection
 				if(curr_command->output_file){
 					//outputRedirect(curr_command->output_file);
@@ -227,15 +238,17 @@ int main(){
 					close(bgDefOut);
 				}
 
+
+				// Run exec()
 				execvp(curr_command->argv[0], curr_command->argv);
 				perror(curr_command->argv[0]);
 				exit(1);
 				break;
 			default://Parent process
-				if(curr_command->is_bg){
+				if(curr_command->is_bg && !fgOnly){
 					printf("background pid is %d\n", spawnPid);
 					fflush(stdout);
-				} else{
+				}else{
 					waitpid(spawnPid, &childStatus, 0);
 				}
 				break;
